@@ -50,7 +50,7 @@ class Viterbi(object):
         # return the best path
         return self._backtrack(sentence, viterbi_history, viterbi_path)
 
-    def _backtrack(self, sentence, history, path):
+    def _backtrack(self, sentence, history, path):  # TODO - not sure if correct
         n = len(sentence) - 1
         (prob, state) = max((history[n][tag]) for tag in self.tags)
         return prob, path[state]
