@@ -13,5 +13,5 @@ setup(name='ViterbiPerceptron',
       entry_points={
         'console_scripts': []
       },
-      scripts=[],
+      scripts=["viterbiperceptron/scripts/parse_data.py"],
       packages=['viterbiperceptron'])

@@ -42,7 +42,6 @@ def main():
     while i < len(content):
         if content[i].strip() == DOC_START_STRING or i == len(content) - 1:  # Deal with new documents
             if len(document) != 0:  # Sentences exist
-                print document
                 docs.append(list(document))
                 document = []
             i += 2  # Jump 2 indexes (new line + next word)
@@ -58,7 +57,8 @@ def main():
             i += 1
 
     f = file(args[2], "w+")
-    print len(docs)
     f.write(json.dumps(docs))
     f.close()
     print "Finished parsing file"
+
+main()
