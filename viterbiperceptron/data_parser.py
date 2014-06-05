@@ -1,4 +1,7 @@
 import os
+import json
+
+
 """
 @description: Additonal functions that do data file processing
 """
@@ -57,7 +60,36 @@ def read_file(input_file):
 def write_output_to_file(output, output_file):
     """
     @description: Writes the output of a NER tagger to a output file for statistical analysis
+    :arg
+        output (list of lists) -
+            Sentences
+                Words
+                    [..]
     :return:
         True|False
     """
-    pass
+    f = file(output_file,"w+");
+    f.write("-DOCSTART- -X- -X- O\n")
+    for sentence in output:
+        for word in sentence:
+            f.write(" ".join(word) + "\n")
+        f.write("\n")
+    f.close()
+
+
+def load_perceptron_from_file(perceptron_klass, file_name):
+    """
+    @description: load and return a perceptron with predefined weights
+    :param perceptron_klass: Class reference to perceptron
+    :param file_name: str
+    :return: Object of type perceptron_klass or False
+    """
+    if os.path.exists(file_name):
+        with file(file_name) as f:
+            json_data = f.read()
+        data = json.loads(json_data)
+        res = perceptron_klass([], 0)
+        res.weights = data
+        return res
+    else:
+        raise Exception("Json Failed")

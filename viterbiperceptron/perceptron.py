@@ -1,7 +1,5 @@
 from collections import defaultdict
 import time
-import os
-import json
 
 
 class StructuredPerceptron(object):
@@ -20,19 +18,6 @@ class StructuredPerceptron(object):
         self.historical_trainings = {klass: defaultdict(int) for klass in self.classes}
         self.averaged_weights = {klass: defaultdict(int) for klass in self.classes}
 
-    @staticmethod
-    def load_from_json(file_name):
-        """
-        @description: Load a perceptron from json weights file
-        :param file_name: json file name
-        :return:
-        """
-        if os.path.exists(file_name):
-            with file(file_name) as f:
-                data = json.loads(f.readline())
-
-
-
     def train(self):
         """
         @description: train the perceptron with training data provided
@@ -46,29 +31,42 @@ class StructuredPerceptron(object):
         num_trainings = 0
 
         # Perform Training
-        for i in xrange(0, self.iterations):  # For each iteration
+        for i in xrange(1, self.iterations+1):  # For each iteration
+
+            trains_done_in_iteration = 0
+
             for t in training_data:  # For each training item
-                tag_path = self.classify(t)  # TODO - STUB Classify item
+
+                if trains_done_in_iteration % 200 == 0:
+                    print "On iteration: %d | Completed: %d / %d" % (i, trains_done_in_iteration, len(training_data))
+
+                tag_path = self.classify(t)  # Determine the best NER tags for sentence
+
+                # Check if Gold Standard Path == Output Path
                 correct_path = True
-                for i in xrange(0,len(t)):  # Check if correct path
-                    if tag_path[i] != t[i][3]:
+                for j in xrange(0,len(t)):  # Check if correct path
+                    if tag_path[j] != t[j][3]:
                         correct_path = False
                         break
+
+                # Update weights accordingly
                 if not correct_path:  # Update weights if required
                     for word in t:  # Update Gold Classes
                         for feature in self.weights[word[3]].keys(): # For each feature in the weights for that TAG
                             self.weights[word[3]][feature] += 1
-                    for i in xrange(0, len(t)):  # Update Output Classes
-                        for feature in self.weights[tag_path[i]].keys():  # For each feature in tagged TAG
-                            self.weights[tag_path[i]][feature] -= 1
+                    for j in xrange(0, len(t)):  # Update Output Classes
+                        for feature in self.weights[tag_path[j]].keys():  # For each feature in tagged TAG
+                            self.weights[tag_path[j]][feature] -= 1
 
+                # Sum up the weights into the averaged weights
                 for tag in self.classes:  # Do summation for averaging
                     for feature in self.weights[tag].keys():
                         self.averaged_weights[tag][feature] += self.weights[tag][feature]
 
                 num_trainings += 1
-                #print "Trained %d sentences" % num_trainings
+                trains_done_in_iteration += 1
             print "Finished iteration %d" % i
+
         # Calculate average weights
         for c in self.classes:
             for f in self.averaged_weights.keys():
@@ -84,6 +82,8 @@ class StructuredPerceptron(object):
             sentence (list of lists) -
                 [[<word>, <gold>], ..] <-- "gold" key is optional
         """
+
+        # Initialise Viterbi history/score tables
         score_history = [{}]
         path_history = [{}]
 
@@ -93,10 +93,10 @@ class StructuredPerceptron(object):
             path_history[0][tag] = "<START>"
 
         # Viterbi algorithm
-        for i in xrange(1, len(sentence)):  # FOR EACH WORD (Column)
+        for i in xrange(1, len(sentence)):  # For each word in the sentence (Column)
             score_history.append({})
             path_history.append({})
-            for tag in self.classes: # FOR EACH TAG (Row)
+            for tag in self.classes:  # For each tag in the classes (Row)
                 coll = []
                 for t in self.classes:  # iterate through all tags for previous words
                     features = self._create_features(sentence, i-1, tag, t, path_history, score_history)  # variable function to create features
@@ -110,7 +110,7 @@ class StructuredPerceptron(object):
                 score_history[i][tag] = score
                 path_history[i][tag] = output_tag
 
-        output_sentence = self._backtrack(len(sentence), path_history, score_history)
+        output_sentence = self._backtrack(len(sentence), path_history, score_history)  # Backtrack to return the output tag sequence
         return output_sentence
 
 
@@ -161,20 +161,3 @@ class FeaturePerceptronOne(StructuredPerceptron):
         else:  # current word is in the middle of sentence - append best prev. word TAG as feature
             features.append("prev-%s" % path_history[word_index-1][inner_tag])
         return features
-
-    @staticmethod
-    def load_from_json(file_name):
-        """
-        @description: Load a perceptron from json weights file
-        :param file_name: json file name
-        :return:
-        """
-        if os.path.exists(file_name):
-            with file(file_name) as f:
-                json_data = f.read()
-            data = json.loads(json_data)
-            res = FeaturePerceptronOne([], 0)
-            res.weights = data
-            return res
-        else:
-            raise Exception("Json Failed")
