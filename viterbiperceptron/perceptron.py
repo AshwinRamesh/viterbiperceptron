@@ -86,7 +86,7 @@ class StructuredPerceptron(object):
         # Initialise Viterbi history/score tables
         score_history = [{}]
         path_history = [{}]
-
+        coll = []
         # Base case
         for tag in self.classes:
             score_history[0][tag] = 0
@@ -102,7 +102,7 @@ class StructuredPerceptron(object):
                     features = self._create_features(sentence, i-1, tag, t, path_history, score_history)  # variable function to create features
                     score = score_history[i-1][t] # Add preceding weight to the output score
                     for f in features:  # Calculate score for tag-feature set
-                        score += self.weights[t][f]
+                        score += self.weights[tag][f]
                     coll.append((score, t))  # determine the score and class for this iteration
                 out = max(coll)
                 score = out[0]
@@ -159,5 +159,5 @@ class FeaturePerceptronOne(StructuredPerceptron):
         if word_index == 0:  # first word in the sentence
             features.append("prev-<START>")
         else:  # current word is in the middle of sentence - append best prev. word TAG as feature
-            features.append("prev-%s" % path_history[word_index-1][inner_tag])
+            features.append("prev-<%s>" % inner_tag)
         return features

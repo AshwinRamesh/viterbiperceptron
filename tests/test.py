@@ -5,7 +5,7 @@ import json
 
 # Read the file into documents
 docs = read_file("/Users/Ash/Documents/University/comp5046/assignments/assignment3/data/conll03/eng.train")
-process = 1
+process = 0
 if process == 0:
     # Convert documents into a large list of sentences == training data
     training_data = []

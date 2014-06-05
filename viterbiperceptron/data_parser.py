@@ -69,7 +69,7 @@ def write_output_to_file(output, output_file):
         True|False
     """
     f = file(output_file,"w+");
-    f.write("-DOCSTART- -X- -X- O\n")
+    f.write("-DOCSTART- -X- -X- O O\n")
     for sentence in output:
         for word in sentence:
             f.write(" ".join(word) + "\n")
