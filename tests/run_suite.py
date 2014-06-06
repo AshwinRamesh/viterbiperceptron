@@ -34,7 +34,7 @@ for doc in docs:
 print "Processed all data.. iterating now.."
 
 for suite in run_suites:
-    perceptron = suites[suite](training_data=training_data, iterations=3)
+    perceptron = suites[suite](training_data=training_data, iterations=10)
 
     print "Beginning Training"
     perceptron.train()
