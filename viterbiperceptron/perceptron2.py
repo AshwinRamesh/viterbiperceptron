@@ -31,36 +31,16 @@ class Word(object):
         self.gold_features = []  # Features of the gold standard
         self.output_features = []  # Features of the output standard
         self.output_feature_sets = {}  # Dict of lists (features) - one for each NER tag
-        self.output_score = float("-inf")  # The classification score up to this word
 
     def add_feature_set(self, key, feature_set):
-        if key not in self.output_feature_sets.keys():
-            self.output_feature_sets[key] = feature_set
-        else:
-            raise Exception("Feature set for key %s exists" % key)
+        self.output_feature_sets[key] = feature_set
 
     def set_output_features(self, classified_tag):
         """
         Set the output_feature set
         :param classified_tag: <str>
         """
-        try:
-            self.output_features = self.output_feature_sets[classified_tag]
-        except:  # key error
-            raise Exception("Setting output features failed. Tag set does not exist.")
-
-    def update_output(self, tag, features, score):
-        """
-        Checks the current score against an input score to see if a given classification is better.
-        If it is, the NER_out is updated
-        :arg: tag <str> (NER tag)
-        :arg: features <list - str>
-        :arg: score <int>
-        """
-        if self.output_score < score:
-            self.NER_out = tag
-            self.output_features = features
-            self.output_score = score
+        self.output_features = self.output_feature_sets[classified_tag]
 
 
 class Sentence(object):
@@ -72,18 +52,24 @@ class Sentence(object):
         self.german = german  # Bool - see if data is german
         self.words = []
 
+    @staticmethod
+    def create_sentence_from_list(word_list, german=False):
+        """
+        Convert a list of lists to a Sentence of Words
+        """
+        s = Sentence(german)
+        for word in word_list:
+            s.append(Word(word))
+        return s
+
     def length(self):
         return len(self.words)
 
     def append(self, word):
-        assert isinstance(word, Word)
         self.words.append(word)
 
     def get(self, index):
-        try:
-            return self.words[index]
-        except:  # Out of range exception
-            raise Exception("No word at that index")
+        return self.words[index]
 
     def convert_to_string(self):
         """
@@ -96,63 +82,46 @@ class Sentence(object):
         else:
             for word in self.words:
                 output += "%s %s %s %s %s\n" % (word.name, word.POS, word.syn_chunk, word.NER, word.NER_out)
-        return output
+        return output + "\n"
 
 
 class StructuredPerceptron(object):
     """
     @description: Structured perceptron class
-    @args:
+    :args:
         iterations (int)
         training_data(list of Sentences) - [Sentence, ...]
     """
 
     SENTENCE_START_TAG = "<START>"
+    SENTENCE_END_TAG = "<END>"
 
     def __init__(self, training_data, iterations=1):
         self.iterations = iterations
         self.training_data = training_data
         self.classes = ["B-PER", "I-PER", "B-LOC", "I-LOC", "B-ORG", "I-ORG", "B-MISC", "I-MISC", "O"]
         self.weights = {klass: defaultdict(int) for klass in self.classes}
-        #self.historical_trainings = {klass: defaultdict(int) for klass in self.classes}  - TODO later
+        self.historical_trainings = {klass: defaultdict(int) for klass in self.classes}
         self.averaged_weights = {klass: defaultdict(int) for klass in self.classes}
 
-    def update_weights(self, sentence):
+    def update_weights(self, sentence, trainings):
         """
         @description: update the weights for the perceptron
         :arg: Sentence <Sentence>
-        :return:
+        :arg: trainings <int> - number of training instances done
         """
-        assert(isinstance(sentence, Sentence))
-
-        # Check if Gold === Output for sentence
-        correct = True
         for i in xrange(0, sentence.length()):
             word = sentence.get(i)
             if word.NER != word.NER_out:
-                correct = False
-                break
-
-        if not correct:  # Not exact match. Need to update weights
-            for i in xrange(0, sentence.length()):
-                word = sentence.get(i)
-                word.gold_features = self._create_gold_features(sentence, i)  # TODO - STUBBED
+                word.gold_features = self._create_gold_features(sentence, i)
                 for feature in word.gold_features:
+                    self.averaged_weights[word.NER][feature] += self.weights[word.NER][feature] * (trainings - self.historical_trainings[word.NER][feature])
+                    self.historical_trainings[word.NER][feature] = trainings
                     self.weights[word.NER][feature] += 1
                 for feature in word.output_features:
+                    self.averaged_weights[word.NER_out][feature] += self.weights[word.NER_out][feature] * (trainings - self.historical_trainings[word.NER_out][feature])
+                    self.historical_trainings[word.NER_out][feature] = trainings
                     self.weights[word.NER_out][feature] -= 1
-
-        # TODO - do lazy update here
-
-        # Sum up the weights into the averaged weights  - TODO remove this for lazy update later
-        for tag in self.classes:  # Do summation for averaging
-            for feature in self.weights[tag].keys():
-                self.averaged_weights[tag][feature] += self.weights[tag][feature]
-
-    def perform_averaging(self, trainings):
-        for c in self.classes:
-            for f in self.averaged_weights.keys():
-                self.averaged_weights[c][f] /= (trainings * 1.0)
 
     def train(self):
         """
@@ -170,12 +139,16 @@ class StructuredPerceptron(object):
         for i in xrange(1, self.iterations+1):  # For each iteration
             for t in training_data:  # For each training item
                 self.classify(t)  # Classify sentence and store the output + features
-                self.update_weights(t)  # Update weights if necessary
+                self.update_weights(t, num_trainings)  # Update weights if necessary
                 num_trainings += 1  # Increment training item count
             print "Finished iteration %d" % i
 
         # Calculate average weights
-        self.perform_averaging(num_trainings)
+        for c in self.classes:
+            for f in self.averaged_weights[c].keys():
+                self.averaged_weights[c][f] += (num_trainings - self.historical_trainings[c][f]) * self.weights[c][f]
+                self.averaged_weights[c][f] /= num_trainings
+                self.historical_trainings[c][f] = num_trainings
 
         print "Training Complete: Iterations: %d | Training Data: %d | Time Taken: %s" % (self.iterations, len(training_data), time.time() - start)
 
@@ -198,9 +171,9 @@ class StructuredPerceptron(object):
         # Viterbi algorithm
         final_top_score = float('-inf')
         final_top_tag = None
-        sen_length = len(sentence)
+        sen_length = sentence.length()
 
-        for i in xrange(1, sen_length):  # For each word in the sentence (Column)
+        for i in xrange(0, sen_length):  # For each word in the sentence (Column)
             word = sentence.get(i)  # get the word object
             score_history.append({})
             path_history.append({})
@@ -210,7 +183,7 @@ class StructuredPerceptron(object):
                 best_features = []
                 for t in self.classes:  # iterate through all tags for previous words
                     features = self._create_output_features(sentence, t, i)  # Create features for prev-curr
-                    score = score_history[i-1][t]  # Add preceding weight to the output score
+                    score = score_history[i][t]  # Add preceding weight to the output score
                     for f in features:  # Calculate score for tag-feature set
                         score += self.weights[tag][f]
                     if score > best_score:
@@ -220,112 +193,37 @@ class StructuredPerceptron(object):
 
                 # Set history/score/feature_set
                 word.add_feature_set(key=tag, feature_set=best_features)
-                score_history[i][tag] = best_score
-                path_history[i][tag] = best_tag
+                score_history[i+1][tag] = best_score
+                path_history[i+1][tag] = best_tag
 
                 # Last word being processed - determine the best final word tag (for effeciency)
                 if i == sen_length - 1 and best_score > final_top_score:
                     final_top_score = best_score
                     final_top_tag = best_tag
 
+        # Do Backtracking
         word.NER_out = final_top_tag  # set the final tag
         word.set_output_features(final_top_tag)  # set the final feature set for the word
-        self._backtrack(sentence, path_history)  # Back track to determine output sequence
-
-    def _backtrack(self, sentence, path_history):  # TODO - not sure if correct
-        """
-        Back tracking algorithm to find best sentence tag sequence
-        :param sentence: <Sentence>
-        :param path_history: <[{},{}..]>
-        """
-
-        for i in xrange(sentence.length(), 1, -1):  # iterate backwards through sentence
-            current_word = sentence.get(i-1)
+        for i in xrange(sentence.length()-1, 0, -1):  # iterate backwards through sentence
+            current_word = sentence.get(i)
             tag = current_word.NER_out
             prev_tag = path_history[i][tag]
             if prev_tag != self.SENTENCE_START_TAG:  # not reached the start of sentence
-                prev_word = sentence.get(i-2)
+                prev_word = sentence.get(i-1)
                 prev_word.NER_out = prev_tag
                 prev_word.set_output_features(prev_tag)
 
     def _create_output_features(self, sentence, prev_tag, index):
-        return []
+        """
+        STUB - need child classes to return data
+        """
+        raise Exception("Cannot call this method for parent class - StructuredPerceptron")
 
     def _create_gold_features(self, sentence, index):
-        return []
-
-
-    def _create_features(self, sentence, index, outer_tag, inner_tag, path_history, score_history):
         """
-        @description: Variable function that returns a list of features
-        :param sentence: list of lists
-        :param index: int
-        :param outer_tag: str
-        :param inner_tag: str
-        :param path_history: dict
-        :param score_history: list of dicts
-        :return: list of str
+        STUB - need child classes to return data
         """
-        raise Exception("Cannot run base perceptron class")
-
-    def _create_weight_update_features(self, sentence, index, gold_data):
-        raise Exception("Cannot run base perceptron class")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        raise Exception("Cannot call this method for parent class - StructuredPerceptron")
 
 
 class FeaturePerceptronOne(StructuredPerceptron):
@@ -336,114 +234,141 @@ class FeaturePerceptronOne(StructuredPerceptron):
         - Only takes into account the previous word tag
     """
 
-    def _create_features(self, sentence, word_index, outer_tag, inner_tag, path_history, score_history):
-        features = []
-        if word_index == 0:  # first word in the sentence
-            features.append("prev-<START>")
-        else:  # current word is in the middle of sentence - append best prev. word TAG as feature
-            features.append("prev-NER-<%s>" % inner_tag)
-        return features
-
-    def _create_weight_update_features(self, sentence, index, gold_data):
+    def _create_gold_features(self, sentence, index):
+        """
+        Features:
+            * previous NER tag
+        """
         features = []
         if index == 0:
-            features.append("prev-<START>")
+            features.append("prev-NER-%s" % self.SENTENCE_START_TAG)
         else:
-            features.append("prev-NER-<%s>" % sentence[index-1])
+            features.append("prev-NER-<%s>" % sentence.get(index-1).NER)
         return features
+
+    def _create_output_features(self, sentence, prev_tag, index):
+        """
+        Features:
+            * previous NER tag
+        """
+        features = []
+        if index == 0:
+            features.append("prev-NER-%s" % self.SENTENCE_START_TAG)
+        else:
+            features.append("prev-NER-<%s>" % prev_tag)
+        return features
+
 
 class FeaturePerceptronTwo(StructuredPerceptron):
     """
     @description:
         Features
         ========
-        - Takes into account Previous NER tag, +2, -2 and current word, +2, -2 and current POS tag
+        - NER -1
+        - WORD -2, -1, 0, 1, 2
+        - POS -2, -1, 0, 1, 2
     """
 
-    def _create_features(self, sentence, word_index, outer_tag, inner_tag, path_history, score_history):
+    def _create_gold_features(self, sentence, index):
         features = []
-        features.append("current-WORD-<%s>" % sentence[word_index][0])  # Current word
-        features.append("current-POS-<%s>" % sentence[word_index][1])   # Current POS tag
+        features.append("current-WORD-<%s>" % sentence.get(index).name)  # Current word
+        features.append("current-POS-<%s>" % sentence.get(index).POS)   # Current POS tag
         try:
-            features.append("current(%d)-NER-<%s>" % (-1, inner_tag))  # Current -1 NER tag
+            features.append("current(%d)-NER-<%s>" % (-1, sentence.get(index).NER))  # Current -1 NER tag
         except:
-            features.append("current(%d)-NER-<%d>" % (-1, "START"))
+            features.append("current(%d)-NER-<%s>" % (-1, self.SENTENCE_START_TAG))
 
         try:
-            features.append("current(%d)-WORD-<%s>" % (1, sentence[word_index+1][0]))  # Current +1 word
+            features.append("current(%d)-WORD-<%s>" % (1, sentence.get(index+1).name))  # Current +1 word
         except:
-            features.append("current(%d)-WORD-<%s>" % (1, "END"))
-        try:
-            features.append("current(%d)-WORD-<%s>" % (2, sentence[word_index+2][0]))  # Current +2 word
-        except:
-            features.append("current(%d)-WORD-<%s>" % (2, "END-END"))
-        try:
-            features.append("current(%d)-WORD-<%s>" % (-1, sentence[word_index-1][0]))  # Current -1 word
-        except:
-            features.append("current(%d)-WORD-<%s>" % (-1, "START"))
-        try:
-            features.append("current(%d)-WORD-<%s>" % (-2, sentence[word_index-2][0]))  # Current -2 word
-        except:
-            features.append("current(%d)-WORD-<%s>" % (-2, "START-START"))
+            features.append("current(%d)-WORD-<%s>" % (1, self.SENTENCE_END_TAG))
 
         try:
-            features.append("current(%d)-POS-<%s>" % (1, sentence[word_index+1][1]))  # Current +1 POS
+            features.append("current(%d)-WORD-<%s>" % (2, sentence.get(index+2).name))  # Current +2 word
         except:
-            features.append("current(%d)-POS-<%s>" % (1, "END"))
+            features.append("current(%d)-WORD-<%s>" % (2, self.SENTENCE_END_TAG*2))
+
         try:
-            features.append("current(%d)-POS-<%s>" % (2, sentence[word_index+2][1]))  # Current +2 POS
+            features.append("current(%d)-WORD-<%s>" % (1, sentence.get(index-1).name))  # Current -1 word
         except:
-            features.append("current(%d)-POS-<%s>" % (2, "END-END"))
+            features.append("current(%d)-WORD-<%s>" % (1, self.SENTENCE_START_TAG))
+
         try:
-            features.append("current(%d)-POS-<%s>" % (-1, sentence[word_index-1][1]))  # Current -1 POS
+            features.append("current(%d)-WORD-<%s>" % (2, sentence.get(index-2).name))  # Current -2 word
         except:
-            features.append("current(%d)-POS-<%s>" % (-1, "START"))
+            features.append("current(%d)-WORD-<%s>" % (2, self.SENTENCE_START_TAG*2))
+
         try:
-            features.append("current(%d)-POS-<%s>" % (-2, sentence[word_index-2][1]))  # Current -2 POS
+            features.append("current(%d)-POS-<%s>" % (1, sentence.get(index+1).POS))  # Current +1 POS
         except:
-            features.append("current(%d)-POS-<%s>" % (-2, "START-START"))
+            features.append("current(%d)-POS-<%s>" % (1, self.SENTENCE_END_TAG))
+
+        try:
+            features.append("current(%d)-POS-<%s>" % (2, sentence.get(index+2).POS))  # Current +2 POS
+        except:
+            features.append("current(%d)-POS-<%s>" % (2, self.SENTENCE_END_TAG*2))
+
+        try:
+            features.append("current(%d)-POS-<%s>" % (1, sentence.get(index-1).POS))  # Current -1 POS
+        except:
+            features.append("current(%d)-POS-<%s>" % (1, self.SENTENCE_START_TAG))
+
+        try:
+            features.append("current(%d)-POS-<%s>" % (2, sentence.get(index-2).POS))  # Current -2 POS
+        except:
+            features.append("current(%d)-POS-<%s>" % (2, self.SENTENCE_START_TAG*2))
+
         return features
 
-    def _create_weight_update_features(self, sentence, index, gold_data):
+    def _create_output_features(self, sentence, prev_tag, index):
         features = []
-        features.append("current-WORD-<%s>" % gold_data[index][0])  # Current word
-        features.append("current-POS-<%s>" % gold_data[index][1])   # Current POS tag
-        try:
-            features.append("current(%d)-NER-<%s>" % (-1, sentence[index]))  # Current -1 NER tag
-        except:
-            features.append("current(%d)-NER-<%d>" % (-1, "START"))
+        features.append("current-WORD-<%s>" % sentence.get(index).name)  # Current word
+        features.append("current-POS-<%s>" % sentence.get(index).POS)   # Current POS tag
+
+        if index == 0:
+            features.append("prev-NER-%s" % self.SENTENCE_START_TAG)
+        else:
+            features.append("prev-NER-<%s>" % prev_tag)
 
         try:
-            features.append("current(%d)-WORD-<%s>" % (1, gold_data[index+1][0]))  # Current +1 word
+            features.append("current(%d)-WORD-<%s>" % (1, sentence.get(index+1).name))  # Current +1 word
         except:
-            features.append("current(%d)-WORD-<%s>" % (1, "END"))
-        try:
-            features.append("current(%d)-WORD-<%s>" % (2, gold_data[index+2][0]))  # Current +2 word
-        except:
-            features.append("current(%d)-WORD-<%s>" % (2, "END-END"))
-        try:
-            features.append("current(%d)-WORD-<%s>" % (-1, gold_data[index-1][0]))  # Current -1 word
-        except:
-            features.append("current(%d)-WORD-<%s>" % (-1, "START"))
-        try:
-            features.append("current(%d)-WORD-<%s>" % (-2, gold_data[index-2][0]))  # Current -2 word
-        except:
-            features.append("current(%d)-WORD-<%s>" % (-2, "START-START"))
+            features.append("current(%d)-WORD-<%s>" % (1, self.SENTENCE_END_TAG))
 
         try:
-            features.append("current(%d)-POS-<%s>" % (1, gold_data[index+1][1]))  # Current +1 POS
+            features.append("current(%d)-WORD-<%s>" % (2, sentence.get(index+2).name))  # Current +2 word
         except:
-            features.append("current(%d)-POS-<%s>" % (1, "END"))
+            features.append("current(%d)-WORD-<%s>" % (2, self.SENTENCE_END_TAG*2))
+
         try:
-            features.append("current(%d)-POS-<%s>" % (2, gold_data[index+2][1]))  # Current +2 POS
+            features.append("current(%d)-WORD-<%s>" % (1, sentence.get(index-1).name))  # Current -1 word
         except:
-            features.append("current(%d)-POS-<%s>" % (2, "END-END"))
+            features.append("current(%d)-WORD-<%s>" % (1, self.SENTENCE_START_TAG))
+
         try:
-            features.append("current(%d)-POS-<%s>" % (-1, gold_data[index-1][1]))  # Current -1 POS
+            features.append("current(%d)-WORD-<%s>" % (2, sentence.get(index-2).name))  # Current -2 word
         except:
-            features.append("current(%d)-POS-<%s>" % (-1, "START"))
+            features.append("current(%d)-WORD-<%s>" % (2, self.SENTENCE_START_TAG*2))
+
         try:
-            features.append("current(%d)-POS-<%s>" % (-2, gold_data[index-2][1]))  # Current -2 POS
+            features.append("current(%d)-POS-<%s>" % (1, sentence.get(index+1).POS))  # Current +1 POS
         except:
-            features.append("current(%d)-POS-<%s>" % (-2, "START-START"))
+            features.append("current(%d)-POS-<%s>" % (1, self.SENTENCE_END_TAG))
+
+        try:
+            features.append("current(%d)-POS-<%s>" % (2, sentence.get(index+2).POS))  # Current +2 POS
+        except:
+            features.append("current(%d)-POS-<%s>" % (2, self.SENTENCE_END_TAG*2))
+
+        try:
+            features.append("current(%d)-POS-<%s>" % (1, sentence.get(index-1).POS))  # Current -1 POS
+        except:
+            features.append("current(%d)-POS-<%s>" % (1, self.SENTENCE_START_TAG))
+
+        try:
+            features.append("current(%d)-POS-<%s>" % (2, sentence.get(index-2).POS))  # Current -2 POS
+        except:
+            features.append("current(%d)-POS-<%s>" % (2, self.SENTENCE_START_TAG*2))
+
         return features
+

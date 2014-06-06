@@ -1,7 +1,6 @@
 import os
 import json
 
-
 """
 @description: Additonal functions that do data file processing
 """
@@ -69,11 +68,9 @@ def write_output_to_file(output, output_file):
         True|False
     """
     f = file(output_file,"w+");
-    f.write("-DOCSTART- -X- -X- O O\n")
+    f.write("-DOCSTART- -X- -X- O O\n\n")
     for sentence in output:
-        for word in sentence:
-            f.write(" ".join(word) + "\n")
-        f.write("\n")
+        f.write(sentence.convert_to_string())
     f.close()
 
 
