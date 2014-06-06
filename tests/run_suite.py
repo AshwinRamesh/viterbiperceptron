@@ -9,7 +9,7 @@ suites = {
         }
 
 # Defines which suites to actually run
-run_suites = [1,2]
+run_suites = [1]
 
 
 # Read the file into documents
